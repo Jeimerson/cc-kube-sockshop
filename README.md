@@ -1,247 +1,213 @@
+---
 
-Ambassador/Consul Connect E2E Kubernetes Demo
-=============================================
+# Ambassador/Consul Connect E2E Kubernetes Demo
 
-## Purpose
+===============================================
 
-This repo contains the configuration files and scripts to set up a Kubernetes
-cluster with everything you need to demo or explore Consul Connect. 
-Specifically, it demonstrates the following features:
+## Propósito
 
- * [Helm chart][helm-blog] to deploy Consul agents and servers with Gossip 
-   encryption, the Consul Connect injector, and catalog sync between 
-   Consul and Kubernetes.
+Este repositório contém os arquivos de configuração e scripts para configurar um cluster Kubernetes com tudo o que você precisa para demonstrar ou explorar o Consul Connect.
+Especificamente, ele demonstra os seguintes recursos:
 
- * Automatic injection of [Consul Connect sidecars][sidecars] into pods with
-   a simple annotation.
+* [Helm chart][helm-blog] para implantar agentes e servidores Consul com criptografia Gossip, o injector do Consul Connect e sincronização de catálogo entre Consul e Kubernetes.
 
- * An instance of the [HTTP echo service][echo] and its client, so you can 
-   test Connect functionality.
+* Injeção automática de [sidecars do Consul Connect][sidecars] em pods com uma simples anotação.
 
- * An instance of the DataWire [QoTM service][qotm], also for testing.
+* Uma instância do [serviço HTTP echo][echo] e seu cliente, para testar a funcionalidade do Connect.
 
- * Working instance of the [Weaveworks Sock Shop][sockshop] microservice demo, 
-   with Consul Connect mediating all connections between services. 
+* Uma instância do serviço DataWire [QoTM][qotm], também para testes.
 
- * DataWire [Ambassador][] as the L7 gateway, routing requests from the 
-   Internet to the Connect proxies with full mutual TLS and using Consul
-   for service discovery.
+* Instância funcional do demo de microsserviços [Weaveworks Sock Shop][sockshop], com Consul Connect mediando todas as conexões entre os serviços.
+
+* DataWire [Ambassador][] como o gateway L7, roteando requisições da Internet para os proxies Connect com TLS mútuo completo e usando Consul para descoberta de serviços.
 
 ---
 
-## Prerequisites
+## Pré-requisitos
 
-You should also have a Kubernetes cluster up and running already, with the
-`kubectl` utility configured properly to talk to it, and a recent release of
-[Helm][]. On a Mac with Homebrew, you can simply type:
+Você também deve ter um cluster Kubernetes em funcionamento, com o utilitário `kubectl` configurado corretamente para se comunicar com ele, e uma versão recente do [Helm][].
+Em um Mac com Homebrew, basta digitar:
 
-    brew install kubernetes-helm kubernetes-cli
+```
+brew install kubernetes-helm kubernetes-cli
+```
 
-Create a Kubernetes secret with the contents of your Consul Enterprise license
-key.
+Crie um secret no Kubernetes com o conteúdo da sua licença do Consul Enterprise:
 
-    kubectl create secret generic consul-ent-license --from-file=bef1b5c5-4290-a854-a34b-af1651d5d41b.hclic  
+```
+kubectl create secret generic consul-ent-license --from-file=bef1b5c5-4290-a854-a34b-af1651d5d41b.hclic  
+```
 
 ---
 
-## Setup
+## Configuração
 
-#### Helm and Tiller
+#### Helm e Tiller
 
-Run `tiller/helm-init.sh` to create a service account and install the Tiller
-service.
+Execute `tiller/helm-init.sh` para criar uma service account e instalar o serviço Tiller.
 
-#### Kubernetes Dashboard (optional)
+#### Kubernetes Dashboard (opcional)
 
-If you prefer using the dashboard to the CLI, you can run 
-`kube-dashboard/dashboard.sh` to install the dashboard and start a local 
-proxy. You can then log into the dashboard at http://localhost:8001/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy/.
+Se você preferir usar o dashboard em vez da CLI, execute
+`kube-dashboard/dashboard.sh` para instalar o dashboard e iniciar um proxy local.
+Você poderá acessá-lo em:
 
-If the dashboard asks you to log in, there are helper scripts in `token-*.sh` 
-that will copy an auth token onto the clipboard.
+```
+http://localhost:8001/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy/
+```
 
-#### Consul servers and clients
+Se o dashboard pedir login, existem scripts auxiliares `token-*.sh` que copiarão um token de autenticação para a área de transferência.
 
-The `consul/consul.sh` script uses the Consul Helm chart to deploy Consul
-servers and client agents. The Helm chart does all of the following:
+#### Servidores e clientes Consul
 
- * Deploy 3 Consul server pods, each with 20GB storage (currently version 
-   1.4.2 OSS).
+O script `consul/consul.sh` usa o Helm chart do Consul para implantar servidores e agentes Consul. O chart faz o seguinte:
 
- * Deploy agent pods to each host in the cluster.
+* Implanta 3 pods de servidor Consul, cada um com 20GB de armazenamento (versão atual 1.4.2 OSS).
 
- * Deploy the `consul-k8s` pod for service catalog sync and automatic
-   Consul Connect injection.
+* Implanta pods de agente em cada nó do cluster.
 
-The chart can be customized in various ways by editing `consul/values.yaml`,
-for example:
+* Implanta o pod `consul-k8s` para sincronização do catálogo de serviços e injeção automática do Consul Connect.
 
- * If you are testing with minikube, you should change `server.replicas` and
-   `server.bootstrapExpect` to 1.
+O chart pode ser customizado de várias maneiras editando `consul/values.yaml`, por exemplo:
 
- * You can use a specific version of [Consul][consul-tags], 
-   [Envoy][envoy-tags], or [`consul-k8s`][k8s-tags] by changing the 
-   `image` fields.
+* Se estiver testando com minikube, altere `server.replicas` e `server.bootstrapExpect` para 1.
 
- * You can expose the Consul UI outside the cluster by changing 
-   `ui.service.type` from `NodePort` to `LoadBalancer` if you'd prefer not
-   to use the `kubectl` port forwarder.
+* Você pode usar versões específicas de [Consul][consul-tags], [Envoy][envoy-tags] ou [`consul-k8s`][k8s-tags] alterando os campos `image`.
 
-If you would rather deploy enterprise binaries instead of OSS, make the
-following changes:
+* Você pode expor a UI do Consul para fora do cluster mudando `ui.service.type` de `NodePort` para `LoadBalancer`, caso prefira não usar o port forward do `kubectl`.
 
- * Create a secret in Kubernetes that contains your license key. See the
-   comments at the top of `values.yaml` for an example.
+Se preferir implantar binários enterprise em vez do OSS, faça o seguinte:
 
- * Add the `-ent` tag to the end of the tag specified in `global.image`,
-   e.g. `"consul:1.4.2-ent"`.
+* Crie um secret no Kubernetes contendo sua chave de licença. Veja os comentários no topo do `values.yaml`.
 
- * Set the name of your secret in `server.enterpriseLicense.secretName`
-   and `server.enterpriseLicense.secretKey`. Use the commented entries
-   in `values.yaml` as your guide.
+* Adicione o sufixo `-ent` à tag especificada em `global.image`, por exemplo `"consul:1.4.2-ent"`.
 
-If anything goes wrong with the deployment (e.g. due to syntax errors in your
-`values.yaml`), you can use the `consul/clean.sh` script to clean everything
-out and try again.
+* Configure o nome do secret em `server.enterpriseLicense.secretName` e `server.enterpriseLicense.secretKey`.
 
-#### Simple HTTP echo service
+Se algo der errado com a implantação (ex.: erros de sintaxe no `values.yaml`), use o script `consul/clean.sh` para limpar tudo e tentar novamente.
 
-Some of the Consul docs use an HTTP "echo" service and client to demonstrate
-various concepts. Those can be deployed with `simple/simple.sh`. 
+#### Serviço simples HTTP echo
 
-To test the connection between client and server, see the "Testing and Demos" 
-section below.
+Alguns documentos do Consul usam um serviço HTTP "echo" e seu cliente para demonstrar vários conceitos. Eles podem ser implantados com `simple/simple.sh`.
 
-#### Load intentions into Consul Connect
+Para testar a conexão entre cliente e servidor, veja a seção "Testes e Demos" abaixo.
 
-The `consul/intentions.sh` script creates a default set of intentions for
-Connect to enable the demos to run:
+#### Carregar intentions no Consul Connect
 
- * Ambassador may talk to anything.
+O script `consul/intentions.sh` cria um conjunto padrão de intentions para permitir que as demos funcionem:
 
- * The `carts`, `orders`, `catalogue`, and `user` services from the Sock Shop
-   demo can talk to their own databases (`carts-db`, `orders-db`, etc).
+* Ambassador pode se comunicar com qualquer serviço.
 
- * The Sock Shop `front-end` web server can talk to the `carts`, `orders`, 
-  `catalogue`, and `user` services.
+* Os serviços `carts`, `orders`, `catalogue` e `user` do Sock Shop podem acessar seus próprios bancos de dados (`carts-db`, `orders-db`, etc).
 
- * The HTTP echo client may talk to the echo server.
+* O servidor web `front-end` do Sock Shop pode acessar os serviços `carts`, `orders`, `catalogue` e `user`.
 
- * All other traffic is denied.
+* O cliente HTTP echo pode acessar o servidor echo.
 
-#### Sock Shop demo
+* Todo o restante do tráfego é negado.
 
-Run the `sockshop/weaveworks.sh` script to deploy a version of the Sock Shop 
-demo that is customized to use Consul Connect. Very few changes were actually
-necessary -- this shows how easy it is to adapt your own applications to
-Connect!
+#### Demo Sock Shop
 
-The changes made were as follows:
+Execute o script `sockshop/weaveworks.sh` para implantar uma versão do Sock Shop personalizada para usar o Consul Connect. Pouquíssimas mudanças foram necessárias — isso mostra como é fácil adaptar suas próprias aplicações para o Connect!
 
- * In the Helm chart, annotate the pods to mark them for [sidecar 
-   injection][cartdb] and declare the [upstream dependencies][carts].
+As mudanças foram:
 
- * For each downstream service service, add either an [environment variable][user] 
-   or a [command-line option][catalogue] to tell them to look on localhost 
-   for their upstreams.
+* No Helm chart, anotar os pods para [injeção de sidecar][cartdb] e declarar as [dependências upstream][carts].
 
-The only service that required actual code changes was the `front-end`, 
-because it had the upstream service names hard-coded. I took advantage of the
-environment variables created by Connect, as you can see [here][frontend].
-If you remove the Connect injection, the front end will revert to its old
-behavior.
+* Para cada serviço downstream, adicionar uma [variável de ambiente][user] ou uma [opção de linha de comando][catalogue] para instruir a buscar seus upstreams em localhost.
+
+O único serviço que precisou de mudanças de código foi o `front-end`, porque os nomes dos serviços upstream estavam hard-coded. Usei as variáveis de ambiente criadas pelo Connect, como mostrado [aqui][frontend].
+Se você remover a injeção Connect, o front-end voltará ao comportamento antigo.
 
 #### Ambassador
 
-Finally, deploy the Ambassador proxy by running `ambassador/ambassador.sh`. 
-This will install Ambassador itself as well as the Consul Connector, which 
-looks up the Consul mTLS certificates and provides them to the main
-Ambassador service.
+Por fim, implante o proxy Ambassador executando `ambassador/ambassador.sh`.
+Isso instalará o próprio Ambassador e também o Consul Connector, que recupera os certificados mTLS do Consul e os fornece ao serviço principal Ambassador.
 
 ---
 
-## Testing and Demos
+## Testes e Demos
 
-#### Finding the IP address of Ambassador
+#### Encontrando o endereço IP do Ambassador
 
-As an L7 gateway, Ambassador exposes a public IP address. You'll need to know
-that address to run any of the tests below. Use the command `kubectl describe 
-service ambassador` and look for the "LoadBalancer Ingress". That is the
-public-facing IP address of your Ambassador service. When you see 
-`AMBASSADOR_IP` in the examples below, replace it with that IP address.
+Como um gateway L7, o Ambassador expõe um endereço IP público. Você precisará dele para os testes abaixo.
+Use:
 
-#### Simple HTTP echo service
+```
+kubectl describe service ambassador
+```
 
-The HTTP echo client pod has been injected with a proxy to connect to 
-the echo server. You can verify this by inspecting the pod and looking at
-the annotations:
+Procure por “LoadBalancer Ingress”. Esse é o IP público do serviço Ambassador.
+Sempre que aparecer `AMBASSADOR_IP` nos exemplos, substitua por esse valor.
 
-    consul.hashicorp.com/connect-inject=true
-    consul.hashicorp.com/connect-inject-status=injected
-    consul.hashicorp.com/connect-service=http-echo-client
-    consul.hashicorp.com/connect-service-upstreams=http-echo:1234
+#### Serviço HTTP echo simples
 
-You'll also see that the pod contains an extra container named
-`consul-connect-envoy-sidecar`. This is the proxy that carries connections
-to the upstream service.
+O pod cliente HTTP echo foi injetado com um proxy para se conectar ao servidor echo.
+Você pode confirmar isso inspecionando o pod e vendo as anotações:
 
-You can verify that the connection to the upstream service works by running 
-a `curl` command inside the client container:
+```
+consul.hashicorp.com/connect-inject=true
+consul.hashicorp.com/connect-inject-status=injected
+consul.hashicorp.com/connect-service=http-echo-client
+consul.hashicorp.com/connect-service-upstreams=http-echo:1234
+```
 
-    $ kubectl exec -it http-echo-client curl localhost:1234
-    "hello world"
+Você também verá um container extra chamado `consul-connect-envoy-sidecar`.
+Este é o proxy que transporta as conexões para o serviço upstream.
 
-Try changing the intention from "allow" to "deny" and the `curl` command 
-stops working immediately:
+Para testar a conexão, execute dentro do container cliente:
 
-    $ consul intention create -replace -deny '*' http-echo
-    $ kubectl exec -it http-echo-client curl localhost:1234
-    curl: (52) Empty reply from server
-    command terminated with exit code 52
+```
+$ kubectl exec -it http-echo-client curl localhost:1234
+"hello world"
+```
 
-And of course you can allow traffic again via:
+Altere a intention de “allow” para “deny” e o `curl` para de funcionar imediatamente:
 
-    $ consul intention create -replace -allow '*' http-echo
+```
+$ consul intention create -replace -deny '*' http-echo
+$ kubectl exec -it http-echo-client curl localhost:1234
+curl: (52) Empty reply from server
+command terminated with exit code 52
+```
 
-You can also invoke the service from Ambassador:
+E você pode permitir novamente com:
 
-    $ curl http://AMBASSADOR_IP/echo/
+```
+$ consul intention create -replace -allow '*' http-echo
+```
 
-#### Ambassador QoTM service
+Você também pode acessar o serviço via Ambassador:
 
-Ambassador provides a "Quote of the Moment" service. You can test it
-by opening http://AMBASSADOR_IP/qotm/.
+```
+$ curl http://AMBASSADOR_IP/echo/
+```
 
-#### Sock Shop demo
+#### Serviço QoTM do Ambassador
 
-Finally, the big enchilada! Visit http://AMBASSADOR_IP/socks/ to test it out.
-The traffic flow to serve the page looks like this:
+O Ambassador fornece um serviço “Quote of the Moment”.
+Você pode testar acessando:
+
+```
+http://AMBASSADOR_IP/qotm/
+```
+
+#### Demo Sock Shop
+
+Finalmente, o grande final! Visite:
+
+```
+http://AMBASSADOR_IP/socks/
+```
+
+O fluxo de tráfego para servir a página é assim:
 
 ![traffic flow](data_flow.png)
 
 ---
 
-## Future enhancements
+## Melhorias Futuras
 
- - [ ] Monitoring with Prometheus
- - [ ] Outward-facing SSL/TLS with Ambassador
- - [ ] ACL bootstrapping
-
-[sidecars]:    https://www.consul.io/docs/platform/k8s/connect.html
-[sockshop]:    https://microservices-demo.github.io/
-[helm]:        https://helm.sh/
-[helm-blog]:   https://kubernetes.io/blog/2016/10/helm-charts-making-it-simple-to-package-and-deploy-apps-on-kubernetes/
-[ambassador]:  https://www.getambassador.io/
-[connector]:   https://www.getambassador.io/user-guide/consul-connect-ambassador/
-[qotm]:        https://github.com/datawire/qotm
-[echo]:        https://github.com/hashicorp/http-echo
-[proxy]:       http://localhost:8001/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy/#!/overview?namespace=default
-[consul-tags]: https://hub.docker.com/_/consul?tab=tags
-[k8s-tags]:    https://hub.docker.com/r/hashicorp/consul-k8s/tags
-[envoy-tags]:  https://hub.docker.com/r/envoyproxy/envoy-alpine/tags
-[me]:          mailto:todd@hashicorp.com
-[frontend]:    https://github.com/tradel/front-end/blob/9c32e77828993c4571ac2219843a999e6e4e12cf/api/endpoints.js#L18-L35
-[cartdb]:      https://github.com/tradel/microservices-demo/blob/2bc270d61c993f8a1ae3c8a492cae504b7c3ade5/deploy/kubernetes/helm-chart/templates/cart-db-dep.yaml#L14-L15
-[carts]:       https://github.com/tradel/microservices-demo/blob/2bc270d61c993f8a1ae3c8a492cae504b7c3ade5/deploy/kubernetes/helm-chart/templates/carts-dep.yaml#L14-L16
-[catalogue]:   https://github.com/tradel/microservices-demo/blob/2bc270d61c993f8a1ae3c8a492cae504b7c3ade5/deploy/kubernetes/helm-chart/templates/catalogue-dep.yaml#L24
-[user]:        https://github.com/tradel/microservices-demo/blob/2bc270d61c993f8a1ae3c8a492cae504b7c3ade5/deploy/kubernetes/helm-chart/templates/user-dep.yaml#L31-L32
+* [ ] Monitoramento com Prometheus
+* [ ] SSL/TLS externo com Ambassador
+* [ ] Bootstrapping de ACL
